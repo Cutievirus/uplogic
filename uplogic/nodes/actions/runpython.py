@@ -4,6 +4,17 @@ from uplogic.utils.constants import STATUS_INVALID
 from uplogic.utils import is_waiting
 from uplogic.utils import not_met
 
+import inspect
+import asyncio
+
+def schedule(coroutine):
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    future = asyncio.ensure_future(coroutine,loop=loop)
+    loop.run_until_complete(future)
 
 class ULRunPython(ULActionNode):
     def __init__(self):
@@ -47,8 +58,14 @@ class ULRunPython(ULActionNode):
         if self._old_mod_fun != mfun:
             self._modfun = getattr(self._module, mfun)
             self._old_mod_fun = mfun
-        if args:
-            self.val = self._modfun(*args)
+
+        val = self._modfun(*args) if args else self._modfun()
+
+        if inspect.iscoroutine(val):
+            async def coroutine():
+                self.val = await val
+                self.done = True
+            schedule(coroutine())
         else:
-            self.val = self._modfun()
-        self.done = True
+            self.val = val
+            self.done = True
