@@ -6,15 +6,29 @@ from uplogic.utils import not_met
 
 import inspect
 import asyncio
+import threading
+import bge
 
 def schedule(coroutine):
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
+    def runner():
+        def check_game_running(loop,task):
+            if not hasattr(bge.logic,'getCurrentScene'):
+                print("Coroutine thread closed because the game ended.")
+                task.cancel()
+            elif not task.done():
+                loop.call_later(1,check_game_running,loop,task)
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    future = asyncio.ensure_future(coroutine,loop=loop)
-    loop.run_until_complete(future)
+        task = loop.create_task(coroutine)
+        loop.call_later(1,check_game_running,loop,task)
+        try:
+            loop.run_until_complete(task)
+        finally:
+            loop.close()
+            #print("Coroutine thread closed")
+    thread = threading.Thread(target=runner)
+    thread.start()
+    return thread
 
 class ULRunPython(ULActionNode):
     def __init__(self):
@@ -30,6 +44,7 @@ class ULRunPython(ULActionNode):
         self._old_mod_fun = None
         self._module = None
         self._modfun = None
+        self._evaluating = False
 
     def get_done(self):
         return self.done
@@ -38,7 +53,6 @@ class ULRunPython(ULActionNode):
         return self.val
 
     def evaluate(self):
-        self.done = False
         condition = self.get_input(self.condition)
         if not_met(condition):
             return
@@ -50,7 +64,6 @@ class ULRunPython(ULActionNode):
             self.get_input(arg)
             for arg in self.arg
         ]
-        self._set_ready()
         if mname and (self._old_mod_name != mname):
             exec("import {}".format(mname))
             self._old_mod_name = mname
@@ -59,13 +72,25 @@ class ULRunPython(ULActionNode):
             self._modfun = getattr(self._module, mfun)
             self._old_mod_fun = mfun
 
+        if self._evaluating:
+            return
+        self.done = False
+        self._evaluating = True
+
         val = self._modfun(*args) if args else self._modfun()
 
         if inspect.iscoroutine(val):
             async def coroutine():
-                self.val = await val
-                self.done = True
+                try:
+                    self.val = await val
+                    self.done = True
+                    self._set_ready()
+                    self._evaluating = False
+                except:
+                    pass
             schedule(coroutine())
         else:
             self.val = val
             self.done = True
+            self._set_ready()
+            self._evaluating = False
