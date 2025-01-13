@@ -163,7 +163,7 @@ def is_waiting(*args) -> bool:
 
 def make_valid_name(name):
     valid_characters = (
-        "abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ_"
     )
     clsname = name.replace(' ', '_')
     stripped_name = "".join(
